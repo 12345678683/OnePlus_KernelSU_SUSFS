@@ -2958,8 +2958,19 @@ runs:
         # ---------------------------------------------------------------
 
         # ===== HX inject begin =====
+        # 注意：COMMON_KERNEL_DIR 是 build 脚本里的局部变量，不跨 step。
+        # 跨 step 的是 $COMMON_KERNEL_FOLDER（由 GITHUB_ENV 导出）。
+        # 本 step 开头是 set -euo pipefail，所以所有变量都必须带默认值。
+        HX_BASE="${COMMON_KERNEL_FOLDER:-}"
+        if [ -z "$HX_BASE" ] && [ -n "${COMMON_KERNEL_DIR:-}" ]; then
+          HX_BASE="$COMMON_KERNEL_DIR"
+        fi
+        if [ -z "$HX_BASE" ]; then
+          echo "::error::COMMON_KERNEL_FOLDER 未设置，无法定位内核源码树"
+          exit 1
+        fi
         if [ -d "$GITHUB_WORKSPACE/hx-src/kernel" ]; then
-          HX_DST="$COMMON_KERNEL_DIR/drivers/misc/hx"
+          HX_DST="$HX_BASE/drivers/misc/hx"
           mkdir -p "$HX_DST"
           cp "$GITHUB_WORKSPACE"/hx-src/kernel/*.c "$GITHUB_WORKSPACE"/hx-src/kernel/*.h "$HX_DST"/
           {
@@ -2968,11 +2979,12 @@ runs:
             echo 'ccflags-y += -fno-asynchronous-unwind-tables -fno-unwind-tables'
             echo 'ccflags-y += -O2 -Wno-unused-function -Wno-unused-variable'
           } > "$HX_DST/Makefile"
-          grep -q 'obj-y += hx/' "$COMMON_KERNEL_DIR/drivers/misc/Makefile" \
-            || echo 'obj-y += hx/' >> "$COMMON_KERNEL_DIR/drivers/misc/Makefile"
+          grep -q 'obj-y += hx/' "$HX_BASE/drivers/misc/Makefile" \
+            || echo 'obj-y += hx/' >> "$HX_BASE/drivers/misc/Makefile"
           if [ "${HX_RENAME:-0}" = "1" ]; then
             sed -i 's/\bhx_/mdp_/g' "$HX_DST"/*.c "$HX_DST"/*.h || true
           fi
+          echo "HX_BASE=$HX_BASE"
           echo "✅ HX injected -> $HX_DST ($(ls "$HX_DST"/*.c | wc -l) files)"
         else
           echo "::warning::hx-src/kernel not found, skip HX inject"
