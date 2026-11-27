@@ -27,13 +27,21 @@
 #include <linux/highmem.h>
 
 #include "hx.h"
+#include <linux/kallsyms.h>
 #include "hx_internal.h"
 
 /* ---------------------------------------------------------------- *
  * 符号解析：kallsyms_lookup_name 在 GKI 6.6 不再导出，
  * 用 kprobe 的地址解析能力把它取出来（标准做法，无字节改动）。
  * ---------------------------------------------------------------- */
-static void *(*p_kallsyms_lookup_name)(const char *name);
+/*
+ * 符号解析。
+ *
+ * 以前用 kprobe 取 kallsyms_lookup_name 的地址，那是"模块里拿不到未导出符号"的
+ * 补救手段。本代码是 obj-y 编进 vmlinux 的，和 kernel/kallsyms.c 同一个映像，
+ * 直接调用即可 —— 而且省掉了 late_initcall 阶段 register_kprobe/unregister_kprobe
+ * 这一对（5 次 bootloop 里最可疑的动作之一）。
+ */
 static int  (*p_access_process_vm)(struct task_struct *tsk, unsigned long addr,
 				   void *buf, int len, unsigned int gup_flags);
 static long (*p_get_user_pages_remote)(struct mm_struct *mm, unsigned long start,
@@ -42,26 +50,14 @@ static long (*p_get_user_pages_remote)(struct mm_struct *mm, unsigned long start
 
 int hx_sym_init(void)
 {
-	static struct kprobe kp = { .symbol_name = "kallsyms_lookup_name" };
-
-	if (register_kprobe(&kp))
-		return -ENOENT;
-
-	p_kallsyms_lookup_name = (void *)kp.addr;
-	unregister_kprobe(&kp);
-
-	if (!p_kallsyms_lookup_name)
-		return -ENOENT;
-	p_access_process_vm  = hx_sym("access_process_vm");
-	p_get_user_pages_remote = hx_sym("get_user_pages_remote");
+	p_access_process_vm = (void *)kallsyms_lookup_name("access_process_vm");
+	p_get_user_pages_remote = (void *)kallsyms_lookup_name("get_user_pages_remote");
 	return 0;
 }
 
 void *hx_sym(const char *name)
 {
-	if (!p_kallsyms_lookup_name)
-		return NULL;
-	return (void *)p_kallsyms_lookup_name(name);
+	return (void *)kallsyms_lookup_name(name);
 }
 
 /* ---------------------------------------------------------------- *
