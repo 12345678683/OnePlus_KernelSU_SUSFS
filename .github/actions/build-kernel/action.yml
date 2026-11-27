@@ -3429,10 +3429,25 @@ runs:
         echo "HXKO_SIZE=$SIZE" >> "$GITHUB_ENV"
         file "$HXKO" || true
 
+        # ---- 把 out/ 的关键文件也打进 zip，供本地编模块用 ----
+        OUTDIR="$KB/out"
+        STAGE="$GITHUB_WORKSPACE/hx-out"
+        rm -rf "$STAGE"; mkdir -p "$STAGE"
+        for f in Module.symvers .config; do
+          [ -f "$OUTDIR/$f" ] && cp "$OUTDIR/$f" "$STAGE/" && echo "  + $f ($(stat -c%s "$OUTDIR/$f") B)"
+        done
+        [ -d "$OUTDIR/include/generated" ] && cp -r "$OUTDIR/include/generated" "$STAGE/" && echo "  + include/generated"
+        [ -d "$OUTDIR/include/config" ]    && cp -r "$OUTDIR/include/config"    "$STAGE/" && echo "  + include/config"
+        if [ -d "$STAGE" ]; then
+          ( cd "$GITHUB_WORKSPACE" && zip -qr "$STAGE/hx-out.zip" hx-out -x 'hx-out/hx-out.zip' ) || true
+          echo "hx-out.zip: $(stat -c%s "$STAGE/hx-out.zip" 2>/dev/null || echo 0) B"
+        fi
+
         TARGET="$ARTIFACTS_FOLDER/$ZIP_NAME"
         if [ -f "$TARGET" ]; then
           cd "$ARTIFACTS_FOLDER"
           zip -j "$ZIP_NAME" "$GITHUB_WORKSPACE/hx.ko" && echo "✅ 已追加 hx.ko 到 $ZIP_NAME"
+          [ -f "$GITHUB_WORKSPACE/hx-out/hx-out.zip" ] && zip -j "$ZIP_NAME" "$GITHUB_WORKSPACE/hx-out/hx-out.zip" && echo "✅ 已追加 hx-out.zip"
         else
           echo "::warning::找不到 $TARGET"
         fi
