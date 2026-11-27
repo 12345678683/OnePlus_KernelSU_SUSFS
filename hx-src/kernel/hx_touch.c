@@ -102,11 +102,14 @@ static void hx_to_dev(int px, int py, int *dx, int *dy)
 	int xmin = 0, xmax = g_cfg.hud_w ? g_cfg.hud_w : 1280;
 	int ymin = 0, ymax = g_cfg.hud_h ? g_cfg.hud_h : 2760;
 
-	if (g_touch) {
-		xmin = g_touch->absmin[ABS_MT_POSITION_X];
-		xmax = g_touch->absmax[ABS_MT_POSITION_X];
-		ymin = g_touch->absmin[ABS_MT_POSITION_Y];
-		ymax = g_touch->absmax[ABS_MT_POSITION_Y];
+	/* struct input_dev 没有 absmin/absmax，范围在 absinfo[axis].minimum/maximum */
+	if (g_touch && g_touch->absinfo) {
+		const struct input_absinfo *ai = g_touch->absinfo;
+
+		xmin = ai[ABS_MT_POSITION_X].minimum;
+		xmax = ai[ABS_MT_POSITION_X].maximum;
+		ymin = ai[ABS_MT_POSITION_Y].minimum;
+		ymax = ai[ABS_MT_POSITION_Y].maximum;
 	}
 	if (xmax <= xmin)
 		xmax = xmin + 1;
