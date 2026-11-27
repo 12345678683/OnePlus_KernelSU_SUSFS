@@ -1,16 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
- * hx_mem.c — 符号解析 / 进程定位 / 模块锚点 / 跨进程读写
- *
- * 与 sgame 的 memd 的差别：
- *   memd 是用户态 process_vm_readv 逐段读，宿主侧 adb pull 限速 22MB/s；
- *   HX 在内核态直接 access_process_vm，无 syscall 往返、无 fd、无 /proc 访问，
- *   实测单次 64KB 读取在 3~8us 量级，整局采样开销 < 0.3% CPU。
- *
- * 与 Sevik 的差别：
- *   Sevik 依赖目标进程里被注入的 .so 触发读取（maps 可见）；
- *   HX 从内核侧读，目标进程 mm 上没有任何额外 VMA。
- */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -18,30 +6,26 @@
 #include <linux/sched/task.h>
 #include <linux/mm.h>
 #include <linux/mm_types.h>
-#include <linux/fs.h>
-#include <linux/dcache.h>
-#include <linux/limits.h>
+#include <linux/kallsyms.h>
+#include <linux/kprobes.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
-#include <linux/kprobes.h>
-#include <linux/highmem.h>
+#include <linux/vmalloc.h>
+#include <linux/pid.h>
+#include <linux/dcache.h>
+#include <linux/path.h>
 
 #include "hx.h"
-#include <linux/kallsyms.h>
 #include "hx_internal.h"
 
 /* ---------------------------------------------------------------- *
- * 符号解析：kallsyms_lookup_name 在 GKI 6.6 不再导出，
- * 用 kprobe 的地址解析能力把它取出来（标准做法，无字节改动）。
- * ---------------------------------------------------------------- */
-/*
- * 符号解析。
+ * 符号解析
  *
- * 以前用 kprobe 取 kallsyms_lookup_name 的地址，那是"模块里拿不到未导出符号"的
- * 补救手段。本代码是 obj-y 编进 vmlinux 的，和 kernel/kallsyms.c 同一个映像，
- * 直接调用即可 —— 而且省掉了 late_initcall 阶段 register_kprobe/unregister_kprobe
- * 这一对（5 次 bootloop 里最可疑的动作之一）。
- */
+ * kallsyms_lookup_name 在 GKI 6.6 没有 EXPORT_SYMBOL，模块里直接调会
+ * undefined。标准做法是用 kprobe 的符号解析能力把地址取出来：
+ * 注册一个 symbol_name 指向它的空 kprobe，kp.addr 就是函数地址。
+ * ---------------------------------------------------------------- */
+static void *(*p_kallsyms_lookup_name)(const char *name);
 static int  (*p_access_process_vm)(struct task_struct *tsk, unsigned long addr,
 				   void *buf, int len, unsigned int gup_flags);
 static long (*p_get_user_pages_remote)(struct mm_struct *mm, unsigned long start,
@@ -50,14 +34,27 @@ static long (*p_get_user_pages_remote)(struct mm_struct *mm, unsigned long start
 
 int hx_sym_init(void)
 {
-	p_access_process_vm = (void *)kallsyms_lookup_name("access_process_vm");
-	p_get_user_pages_remote = (void *)kallsyms_lookup_name("get_user_pages_remote");
+	static struct kprobe kp = { .symbol_name = "kallsyms_lookup_name" };
+
+	if (register_kprobe(&kp))
+		return -ENOENT;
+
+	p_kallsyms_lookup_name = (void *)kp.addr;
+	unregister_kprobe(&kp);
+
+	if (!p_kallsyms_lookup_name)
+		return -ENOENT;
+
+	p_access_process_vm     = hx_sym("access_process_vm");
+	p_get_user_pages_remote = hx_sym("get_user_pages_remote");
 	return 0;
 }
 
 void *hx_sym(const char *name)
 {
-	return (void *)kallsyms_lookup_name(name);
+	if (!p_kallsyms_lookup_name)
+		return NULL;
+	return (void *)p_kallsyms_lookup_name(name);
 }
 
 /* ---------------------------------------------------------------- *
