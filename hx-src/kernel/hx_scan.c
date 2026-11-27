@@ -8,7 +8,7 @@
  *   实体管理器 + 0x1D0 -> 链表头
  *   实体 + 0x150       -> next
  *   实体 + 0xF8        -> Actor
- *   Actor + 0x3C/0x40  -> float x / z
+ *   Actor + 0x3C/0x40  -> float x / z（读成 Q16.16 定点）
  *
  * 与 sgame 的做法差异：
  *   sgame 每次采样都要 memd 逐段读 + 宿主 Python 解析，一轮 3.2GB/2s；
@@ -57,16 +57,16 @@ static int hx_walk(int pid, u64 head, struct hx_ent *out, int cap)
 			break;
 
 		e.actor = actor;
-		hx_read_f32(pid, actor + g_cfg.o_actor_x, &e.x);
-		hx_read_f32(pid, actor + g_cfg.o_actor_z, &e.z);
+		hx_read_fx(pid, actor + g_cfg.o_actor_x, &e.x);
+		hx_read_fx(pid, actor + g_cfg.o_actor_z, &e.z);
 		if (g_cfg.o_actor_hp)
 			hx_read_u32(pid, actor + g_cfg.o_actor_hp, (u32 *)&e.hp);
 		if (g_cfg.o_actor_team)
 			hx_read_u32(pid, actor + g_cfg.o_actor_team, (u32 *)&e.team);
 
 		/* 合理性过滤：坐标必须是地图量级，否则说明 offset 漂了 */
-		if (e.x > -4000.f && e.x < 4000.f &&
-		    e.z > -4000.f && e.z < 4000.f && (e.x != 0.f || e.z != 0.f))
+		if (e.x > FX_INT(-4000) && e.x < FX_INT(4000) &&
+		    e.z > FX_INT(-4000) && e.z < FX_INT(4000) && (e.x || e.z))
 			out[n++] = e;
 
 		if (hx_read_u64(pid, cur + g_cfg.o_ent_next, &next))
@@ -136,11 +136,11 @@ static int hx_scan_attr_fallback(int pid, u64 bss_lo, u64 bss_hi,
 					if (owner < 0x1000)
 						continue;
 					e.actor = owner;
-					hx_read_f32(pid, owner + g_cfg.o_actor_x, &e.x);
-					hx_read_f32(pid, owner + g_cfg.o_actor_z, &e.z);
+					hx_read_fx(pid, owner + g_cfg.o_actor_x, &e.x);
+					hx_read_fx(pid, owner + g_cfg.o_actor_z, &e.z);
 					e.hp = (s32)hpnow;
-					if (e.x > -4000.f && e.x < 4000.f &&
-					    e.z > -4000.f && e.z < 4000.f)
+					if (e.x > FX_INT(-4000) && e.x < FX_INT(4000) &&
+					    e.z > FX_INT(-4000) && e.z < FX_INT(4000))
 						out[n++] = e;
 					break;
 				}
@@ -197,7 +197,7 @@ fallback:
 }
 
 /* 自己的坐标：链表首个实体即本地玩家（实测 10 个实体里 index 0 是自己） */
-int hx_self_pos(float *x, float *z)
+int hx_self_pos(fx_t *x, fx_t *z)
 {
 	struct hx_ent e[HX_MAX_ENT];
 	int n = hx_scan_once(e, HX_MAX_ENT);
