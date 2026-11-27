@@ -129,7 +129,6 @@ void hx_cfg_apply(const struct hx_cfg *src)
  *   抗检测：落点按 aim_slot_px 做随机抖动；拖拽时长按距离给不同值，
  *           不做"永远精准到 1px"的机械运动。
  * ------------------------------------------------------------------ */
-#if 0  /* single-file test: 这些函数引用其他 .c 的符号 */
 static int hx_pick_target(const struct hx_ent *e, int n)
 {
 	int i, best = -1;
@@ -269,15 +268,36 @@ void hx_feature_suspend(void)
 	cancel_delayed_work_sync(&g_tick_work);
 }
 
-#endif  /* single-file test */
 
 static int __init hx_init(void)
 {
+	int r;
+
+	hx_cfg_default(&g_cfg);
+
+	r = hx_sym_init();
+	if (r)
+		hx_warn("hx: sym_init failed %d\n", r);
+
+	r = hx_touch_init();
+	if (r)
+		hx_warn("hx: touch_init failed %d\n", r);
+
+	r = hx_drm_init();
+	g_drm_ok = (r == 0);
+	if (r)
+		hx_warn("hx: drm hook deferred\n");
+
+	INIT_DELAYED_WORK(&g_tick_work, hx_tick_fn);
+
+	(void)hx_gate_init();
+	hx_feature_resume();
+	hx_hide_self();
+
 	return 0;
 }
 
 
-#if 0  /* exit */
 static void __exit hx_exit(void)
 {
 	hx_feature_suspend();
@@ -285,7 +305,6 @@ static void __exit hx_exit(void)
 	hx_drm_exit();
 	hx_touch_exit();
 }
-#endif
 
 #ifdef MODULE
 module_init(hx_init);
