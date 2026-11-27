@@ -143,29 +143,25 @@ static void hx_dot(struct hx_fb_cache *c, int x, int y, int r, u32 color)
 				hx_put_px(c, x + i, y + j, color);
 }
 
-/* 世界坐标 -> 雷达像素（不需要相机矩阵，最稳） */
-static void hx_radar_map(float wx, float wz, float sx, float sz, int *px, int *py)
+/*
+ * 世界坐标 -> 雷达像素。纯定点：内核禁用浮点，这里一个 float 都不能有。
+ * wx/wz/sx/sz 都是 Q16.16 米，span 换成定点后做除法得到 [-1,1] 的标量。
+ */
+static void hx_radar_map(fx_t wx, fx_t wz, fx_t sx, fx_t sz, int *px, int *py)
 {
-	float span = g_cfg.world_span > 1.f ? g_cfg.world_span : 200.f;
-	int R = g_cfg.radar_r > 8 ? g_cfg.radar_r : 180;
-	float rx = (wx - sx) / span;
-	float rz = (wz - sz) / span;
-	float c = 1.f, s = 0.f;
+	s32 span_m = g_cfg.world_span > 1 ? g_cfg.world_span : 200;
+	s32 R = g_cfg.radar_r > 8 ? g_cfg.radar_r : 180;
+	fx_t span = FX_INT(span_m);
+	fx_t rx, rz;
 
-	if (g_cfg.radar_rot_deg) {
-		/* 角度 -> 弧度。radar_rot_deg 是 f32，不能对它取模（float % int 非法） */
-		float d = g_cfg.radar_rot_deg * 0.017453292f;
-		float d2, d3;
+	if (span <= 0)
+		span = FX_INT(200);
 
-		if (d > 3.14159265f)
-			d -= 6.28318531f;
-		d2 = d * d;
-		d3 = d2 * d;
-		s = d - d3 / 6.f + d3 * d2 / 120.f;
-		c = 1.f - d2 / 2.f + d2 * d2 / 24.f;
-	}
-	*px = g_cfg.radar_cx + (int)((rx * c - rz * s) * (float)R);
-	*py = g_cfg.radar_cy + (int)((rx * s + rz * c) * (float)R);
+	rx = FX_DIV(wx - sx, span);
+	rz = FX_DIV(wz - sz, span);
+
+	*px = g_cfg.radar_cx + (int)(((s64)rx * R) >> FX_SHIFT);
+	*py = g_cfg.radar_cy + (int)(((s64)rz * R) >> FX_SHIFT);
 }
 
 /* 中点圆：只依赖整数，kprobe 上下文安全 */
@@ -194,34 +190,15 @@ static void hx_circle(struct hx_fb_cache *c, int cx, int cy, int r, u32 color)
 	}
 }
 
-/* 世界坐标 -> 屏幕（透视，需要游戏内 view-proj 矩阵地址） */
-static bool hx_w2s(int pid, float wx, float wz, int *ox, int *oy)
+/*
+ * 世界坐标 -> 屏幕（透视）。矩阵投影是 4x4 浮点乘加，内核态禁用浮点，
+ * 所以这里直接关掉，只用雷达模式（雷达不需要相机矩阵）。
+ * 要做透视的话，得把矩阵按 Q16.16 读入再做整数投影。
+ */
+static bool hx_w2s(int pid, fx_t wx, fx_t wz, int *ox, int *oy)
 {
-	float m[16];
-	float cx, cy, cw;
-	u32 sw = g_cfg.hud_w ? g_cfg.hud_w : 1080;
-	u32 sh = g_cfg.hud_h ? g_cfg.hud_h : 2400;
-
-	if (!g_cfg.w2s_addr || !pid)
-		return false;
-	if (hx_read(pid, g_cfg.w2s_addr, m, sizeof(m)) != (int)sizeof(m))
-		return false;
-
-	/* 行主序：clip = M * (x, 0, z, 1) */
-	cx = m[0] * wx + m[1] * 0.f + m[2] * wz + m[3];
-	cy = m[4] * wx + m[5] * 0.f + m[6] * wz + m[7];
-	cw = m[12] * wx + m[13] * 0.f + m[14] * wz + m[15];
-
-	if (cw < 0.01f && cw > -0.01f)
-		return false;
-	if (cw < 0.f)
-		return false;
-
-	*ox = (int)((cx / cw * 0.5f + 0.5f) * sw);
-	*oy = (int)((1.f - (cy / cw * 0.5f + 0.5f)) * sh);
-	if (*ox < -4096 || *ox > 8192 || *oy < -4096 || *oy > 8192)
-		return false;
-	return true;
+	(void)pid; (void)wx; (void)wz; (void)ox; (void)oy;
+	return false;
 }
 
 static void hx_draw_locked(void)
