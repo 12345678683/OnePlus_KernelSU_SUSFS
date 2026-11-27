@@ -3379,6 +3379,7 @@ runs:
 
     - name: Bundle hx.ko into AnyKernel3 zip
       if: always()
+      shell: bash
       run: |
         set -uo pipefail
         HXKO=$(find "${COMMON_KERNEL_FOLDER:-/nonexistent}" -name 'hx.ko' -type f 2>/dev/null | head -1)
