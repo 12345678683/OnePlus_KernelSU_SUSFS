@@ -274,15 +274,13 @@ static int __init hx_init(void)
 
 	hx_cfg_default(&g_cfg);
 
-	/*
-	 * 诊断期刻意用 pr_info 而不是 hx_warn：HX_FLAG_NO_LOG 默认开着，
-	 * 必须让 dmesg 看得到每一步走到哪。
-	 */
-	pr_info("hx: init start (diag_no_tick=%d)\n", HX_DIAG_NO_TICK);
+	pr_info("hx: init start (minimal)\n");
 
+	/* 这次只验证符号解析。其余组件逐个放开，避免同时有多个可疑点。 */
 	r = hx_sym_init();
 	pr_info("hx: sym_init -> %d\n", r);
 
+#if 0
 	r = hx_touch_init();
 	pr_info("hx: touch_init -> %d\n", r);
 
@@ -295,14 +293,11 @@ static int __init hx_init(void)
 	r = hx_gate_init();
 	pr_info("hx: gate_init -> %d\n", r);
 
-#if HX_DIAG_NO_TICK
-	pr_info("hx: tick worker DISABLED (diag mode)\n");
-#else
 	hx_feature_resume();
-	pr_info("hx: tick worker enabled\n");
+	hx_hide_self();
 #endif
 
-	pr_info("hx: init done\n");
+	pr_info("hx: init done (minimal mode)\n");
 	return 0;
 }
 
