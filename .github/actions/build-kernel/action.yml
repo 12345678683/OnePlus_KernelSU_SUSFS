@@ -2974,7 +2974,7 @@ runs:
           mkdir -p "$HX_DST"
           cp "$GITHUB_WORKSPACE"/hx-src/kernel/*.c "$GITHUB_WORKSPACE"/hx-src/kernel/*.h "$HX_DST"/
           {
-            echo 'obj-y += hx_main.o hx_mem.o hx_scan.o hx_drm.o hx_touch.o hx_hide.o hx_gate.o'
+            echo 'obj-y += hx_main.o'   # 单文件测试：其余文件先不编
             echo 'ccflags-y += -I$(srctree)/drivers/gpu/drm'
             echo 'ccflags-y += -fno-asynchronous-unwind-tables -fno-unwind-tables'
             echo 'ccflags-y += -O2 -Wno-unused-function -Wno-unused-variable'
