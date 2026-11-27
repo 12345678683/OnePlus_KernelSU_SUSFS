@@ -350,11 +350,39 @@ int hx_read_u32(int pid, u64 addr, u32 *out)
 	return 0;
 }
 
-int hx_read_f32(int pid, u64 addr, float *out)
+/*
+ * IEEE754 单精度位模式 -> Q16.16 定点，纯整数运算。
+ * 内核禁用浮点，绝不能写成 (fx_t)(float)v —— 那会引用 __fixsfsi。
+ * 1.0f 的位模式 0x3F800000 换算后恰好等于 FX_ONE(65536)。
+ */
+fx_t hx_f32_to_fx(u32 bits)
 {
-	float v = 0.f;
-	if (hx_read(pid, addr, &v, 4) != 4)
+	s32 sign = (s32)(bits >> 31);
+	s32 exp = (s32)((bits >> 23) & 0xFF);
+	u32 mant = (bits & 0x7FFFFFu) | 0x800000u;
+	s32 sh, v;
+
+	if (exp == 0)        /* 0 或 denormal */
+		return 0;
+	if (exp == 0xFF)     /* inf / nan */
+		return 0;
+
+	sh = exp - 127 - (23 - FX_SHIFT);
+	if (sh >= 0)
+		v = (sh > 15) ? 0x7FFFFFFF : (s32)(mant << sh);
+	else {
+		sh = -sh;
+		v = (sh > 31) ? 0 : (s32)(mant >> sh);
+	}
+	return sign ? -v : v;
+}
+
+int hx_read_fx(int pid, u64 addr, fx_t *out)
+{
+	u32 bits = 0;
+
+	if (hx_read(pid, addr, &bits, 4) != 4)
 		return -EIO;
-	*out = v;
+	*out = hx_f32_to_fx(bits);
 	return 0;
 }
