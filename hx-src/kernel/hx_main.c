@@ -270,34 +270,8 @@ void hx_feature_suspend(void)
 /* ------------------------------------------------------------------ */
 static int __init hx_init(void)
 {
-	int r;
-
-	hx_cfg_default(&g_cfg);
-
-	pr_info("hx: init start (minimal)\n");
-
-	/* 这次只验证符号解析。其余组件逐个放开，避免同时有多个可疑点。 */
-	r = hx_sym_init();
-	pr_info("hx: sym_init -> %d\n", r);
-
-#if 0
-	r = hx_touch_init();
-	pr_info("hx: touch_init -> %d\n", r);
-
-	r = hx_drm_init();
-	g_drm_ok = (r == 0);
-	pr_info("hx: drm_init -> %d\n", r);
-
-	INIT_DELAYED_WORK(&g_tick_work, hx_tick_fn);
-
-	r = hx_gate_init();
-	pr_info("hx: gate_init -> %d\n", r);
-
-	hx_feature_resume();
-	hx_hide_self();
-#endif
-
-	pr_info("hx: init done (minimal mode)\n");
+	/* 空壳测试：只留一条 printk，验证 hx 编进内核这件事本身是否有副作用 */
+	pr_info("hx: init (noop)\n");
 	return 0;
 }
 
