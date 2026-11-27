@@ -3391,21 +3391,52 @@ runs:
       shell: bash
       run: |
         set -uo pipefail
-        HXKO=$(find "${COMMON_KERNEL_FOLDER:-/nonexistent}" -name 'hx.ko' -type f 2>/dev/null | head -1)
-        if [ -z "$HXKO" ]; then
-          echo "::warning::没找到 hx.ko（模块可能没编出来）"
+        KB="${COMMON_KERNEL_FOLDER:-}"
+        if [ -z "$KB" ] || [ ! -d "$KB" ]; then
+          echo "::warning::COMMON_KERNEL_FOLDER 无效，跳过"
           exit 0
         fi
-        echo "找到 $HXKO ($(stat -c%s "$HXKO") B)"
+        HXDIR="$KB/drivers/misc/hx"
+        OUT="$KB/out"
+
+        echo "--- hx 目录内容 ---"
+        ls -la "$HXDIR" 2>/dev/null | head -20
+        echo "--- hx/Makefile ---"
+        cat "$HXDIR/Makefile" 2>/dev/null
+
+        # 先看内核编译有没有顺手编出来
+        HXKO=$(find "$KB" -name 'hx.ko' -type f 2>/dev/null | head -1)
+
+        # 没编出来就强制 out-of-tree 编一次
+        if [ -z "$HXKO" ]; then
+          echo "--- 强制 make M=$HXDIR modules ---"
+          make -C "$KB" M="$HXDIR" O="$OUT" ARCH=arm64 LLVM=1 \
+               CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+               OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+               HOSTCC=clang HOSTCXX=clang++ \
+               modules 2>&1 | tail -40 || true
+          HXKO=$(find "$HXDIR" -name 'hx.ko' -type f 2>/dev/null | head -1)
+        fi
+
+        if [ -z "$HXKO" ]; then
+          echo "::warning::强制编译后仍未产出 hx.ko，见上面 make 输出"
+          exit 0
+        fi
+
+        SIZE=$(stat -c%s "$HXKO")
+        echo "✅ 找到 $HXKO ($SIZE B)"
         cp "$HXKO" "$GITHUB_WORKSPACE/hx.ko"
-        echo "HXKO_SIZE=$(stat -c%s "$HXKO")" >> "$GITHUB_ENV"
+        echo "HXKO_SIZE=$SIZE" >> "$GITHUB_ENV"
+        file "$HXKO" || true
+
         TARGET="$ARTIFACTS_FOLDER/$ZIP_NAME"
         if [ -f "$TARGET" ]; then
           cd "$ARTIFACTS_FOLDER"
           zip -j "$ZIP_NAME" "$GITHUB_WORKSPACE/hx.ko" && echo "✅ 已追加 hx.ko 到 $ZIP_NAME"
         else
-          echo "::warning::找不到 $TARGET，单独留一份 hx.ko 在工作区"
+          echo "::warning::找不到 $TARGET"
         fi
+
 
     - name: Upload Debug Artifacts
       if: ${{ always() && !cancelled() && inputs.debug == 'true' }}
