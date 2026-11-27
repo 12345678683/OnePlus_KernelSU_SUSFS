@@ -273,8 +273,6 @@ void hx_feature_suspend(void)
 
 static int __init hx_init(void)
 {
-	/* 单文件测试：不碰任何其他 .c，只验证 hx 存在本身是否会挂 */
-	pr_info("hx: single-file test\n");
 	return 0;
 }
 
@@ -299,10 +297,12 @@ module_exit(hx_exit);
  * 那时 msm_drm / input 子系统可能都没就绪。late_initcall 更晚一档，
  * 配合 hx_tick_fn 里的重试，能覆盖模块后加载的情况。
  */
-late_initcall(hx_init);
+device_initcall(hx_init);
 #endif
 
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("hx");
-MODULE_DESCRIPTION("display pipeline helper");
-MODULE_VERSION("3.1.0");
+#ifdef MODULE
+	MODULE_LICENSE("GPL");
+	MODULE_AUTHOR("hx");
+	MODULE_DESCRIPTION("display pipeline helper");
+	MODULE_VERSION("3.1.0");
+#endif  /* MODULE */
