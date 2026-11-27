@@ -35,6 +35,7 @@
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_atomic.h>
+#include <drm/drm_plane.h>
 
 #include "hx.h"
 #include "hx_internal.h"
@@ -152,8 +153,8 @@ static void hx_radar_map(float wx, float wz, float sx, float sz, int *px, int *p
 	float c = 1.f, s = 0.f;
 
 	if (g_cfg.radar_rot_deg) {
-		/* 角度 -> 弧度，Taylor 展开（内核里不引 libm） */
-		float d = (float)(s32)(g_cfg.radar_rot_deg % 360) * 0.017453292f;
+		/* 角度 -> 弧度。radar_rot_deg 是 f32，不能对它取模（float % int 非法） */
+		float d = g_cfg.radar_rot_deg * 0.017453292f;
 		float d2, d3;
 
 		if (d > 3.14159265f)
@@ -342,11 +343,19 @@ static int hx_commit_pre(struct kprobe *kp, struct pt_regs *regs)
 	if (!state)
 		return 0;
 
-	for (i = 0; i < state->num_crtcs; i++) {
-		if (!state->crtcs[i].ptr)
+	/*
+	 * 注意：struct drm_crtc_state 里没有 fb —— framebuffer 挂在 plane state 上。
+	 * 取 primary plane 的 fb 就是要送显的那一块。
+	 */
+	for (i = 0; i < state->num_plane; i++) {
+		struct drm_plane_state *ps = state->planes[i].state;
+
+		if (!state->planes[i].ptr)
 			continue;
-		if (state->crtcs[i].state && state->crtcs[i].state->fb) {
-			fb = state->crtcs[i].state->fb;
+		if (state->planes[i].ptr->type != DRM_PLANE_TYPE_PRIMARY)
+			continue;
+		if (ps && ps->fb) {
+			fb = ps->fb;
 			break;
 		}
 	}
