@@ -145,6 +145,14 @@ enum {
 	HX_FLAG_NO_LOG      = 1u << 2,
 	HX_FLAG_CAMP_FILTER = 1u << 3,
 	HX_FLAG_DRM_ALPHA   = 1u << 4,
+	/*
+	 * DRM 直绘总开关，默认关闭。
+	 * kprobe pre_handler 在原子上下文，dma_buf_begin_cpu_access() 这种
+	 * 会睡眠的调用绝不能放进去，否则开机早期挂上钩子立刻
+	 * "scheduling while atomic" -> panic -> bootloop。
+	 * 先确认内核能正常启动、采集正常，再用 hxctl 打开这一位。
+	 */
+	HX_FLAG_DRM_DRAW    = 1u << 5,
 };
 
 enum { HX_AIM_ALWAYS = 1, HX_AIM_TOUCH = 2, HX_AIM_KEY = 4 };
