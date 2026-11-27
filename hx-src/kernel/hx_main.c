@@ -129,6 +129,7 @@ void hx_cfg_apply(const struct hx_cfg *src)
  *   抗检测：落点按 aim_slot_px 做随机抖动；拖拽时长按距离给不同值，
  *           不做"永远精准到 1px"的机械运动。
  * ------------------------------------------------------------------ */
+#if 0  /* single-file test: 这些函数引用其他 .c 的符号 */
 static int hx_pick_target(const struct hx_ent *e, int n)
 {
 	int i, best = -1;
@@ -211,6 +212,7 @@ static void hx_aim_tick(const struct hx_ent *e, int n)
 }
 
 /* ------------------------------------------------------------------ */
+
 static void hx_tick_fn(struct work_struct *w)
 {
 	static const struct hx_ent dummy[HX_MAX_ENT];
@@ -267,14 +269,17 @@ void hx_feature_suspend(void)
 	cancel_delayed_work_sync(&g_tick_work);
 }
 
-/* ------------------------------------------------------------------ */
+#endif  /* single-file test */
+
 static int __init hx_init(void)
 {
-	/* 空壳测试：只留一条 printk，验证 hx 编进内核这件事本身是否有副作用 */
-	pr_info("hx: init (noop)\n");
+	/* 单文件测试：不碰任何其他 .c，只验证 hx 存在本身是否会挂 */
+	pr_info("hx: single-file test\n");
 	return 0;
 }
 
+
+#if 0  /* exit */
 static void __exit hx_exit(void)
 {
 	hx_feature_suspend();
@@ -282,6 +287,7 @@ static void __exit hx_exit(void)
 	hx_drm_exit();
 	hx_touch_exit();
 }
+#endif
 
 #ifdef MODULE
 module_init(hx_init);
