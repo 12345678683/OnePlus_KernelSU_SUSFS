@@ -275,42 +275,34 @@ static int __init hx_init(void)
 	hx_cfg_default(&g_cfg);
 
 	/*
-	 * 这里刻意用 pr_info 而不是 hx_warn：HX_FLAG_NO_LOG 默认开着，
-	 * 诊断期必须让 dmesg 看得到每一步走到哪。
+	 * 诊断期刻意用 pr_info 而不是 hx_warn：HX_FLAG_NO_LOG 默认开着，
+	 * 必须让 dmesg 看得到每一步走到哪。
 	 */
-	pr_info("hx: init start (diag_no_tick=%d)
-", HX_DIAG_NO_TICK);
+	pr_info("hx: init start (diag_no_tick=%d)\n", HX_DIAG_NO_TICK);
 
 	r = hx_sym_init();
-	pr_info("hx: sym_init -> %d
-", r);
+	pr_info("hx: sym_init -> %d\n", r);
 
 	r = hx_touch_init();
-	pr_info("hx: touch_init -> %d
-", r);
+	pr_info("hx: touch_init -> %d\n", r);
 
 	r = hx_drm_init();
 	g_drm_ok = (r == 0);
-	pr_info("hx: drm_init -> %d
-", r);
+	pr_info("hx: drm_init -> %d\n", r);
 
 	INIT_DELAYED_WORK(&g_tick_work, hx_tick_fn);
 
 	r = hx_gate_init();
-	pr_info("hx: gate_init -> %d
-", r);
+	pr_info("hx: gate_init -> %d\n", r);
 
 #if HX_DIAG_NO_TICK
-	pr_info("hx: tick worker DISABLED (diag mode)
-");
+	pr_info("hx: tick worker DISABLED (diag mode)\n");
 #else
 	hx_feature_resume();
-	pr_info("hx: tick worker enabled
-");
+	pr_info("hx: tick worker enabled\n");
 #endif
 
-	pr_info("hx: init done
-");
+	pr_info("hx: init done\n");
 	return 0;
 }
 
