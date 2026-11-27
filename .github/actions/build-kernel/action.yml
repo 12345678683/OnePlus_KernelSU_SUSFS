@@ -2982,9 +2982,18 @@ runs:
             echo 'ccflags-y += -fno-asynchronous-unwind-tables -fno-unwind-tables'
             echo 'ccflags-y += -O2 -Wno-unused-function -Wno-unused-variable'
           } > "$HX_DST/Makefile"
-          grep -q 'obj-m += hx/' "$HX_BASE/drivers/misc/Makefile" \
-            || echo 'obj-m += hx/' >> "$HX_BASE/drivers/misc/Makefile"
+          HX_MK="$HX_BASE/drivers/misc/Makefile"
+          # 插到第一行，避免被文件末尾的 ifeq/endif 块包住
+          grep -q 'obj-m += hx/' "$HX_MK" || sed -i '1i obj-m += hx/' "$HX_MK"
           echo "HX_BASE=$HX_BASE"
+          echo "--- CONFIG_MODULES ---"
+          grep -E '^CONFIG_MODULES' "$HX_BASE/out/.config" 2>/dev/null \
+            || grep -E '^CONFIG_MODULES' "$HX_BASE/.config" 2>/dev/null \
+            || echo "未找到 CONFIG_MODULES"
+          echo "--- drivers/misc/Makefile 前 5 行 ---"
+          head -5 "$HX_MK"
+          echo "--- drivers/misc/Makefile 末 10 行 ---"
+          tail -10 "$HX_MK"
           echo "✅ HX injected (module mode) -> $HX_DST"
         else
           echo "::warning::hx-src/kernel not found, skip HX inject"
