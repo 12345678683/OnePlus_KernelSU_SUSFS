@@ -22,6 +22,9 @@
 #include <linux/random.h>
 #include <linux/delay.h>
 
+/* 诊断：1 = 只跑 init，不启动采样线程 */
+#define HX_DIAG_NO_TICK 1
+
 #include "hx.h"
 #include "hx_internal.h"
 
@@ -271,27 +274,43 @@ static int __init hx_init(void)
 
 	hx_cfg_default(&g_cfg);
 
+	/*
+	 * 这里刻意用 pr_info 而不是 hx_warn：HX_FLAG_NO_LOG 默认开着，
+	 * 诊断期必须让 dmesg 看得到每一步走到哪。
+	 */
+	pr_info("hx: init start (diag_no_tick=%d)
+", HX_DIAG_NO_TICK);
+
 	r = hx_sym_init();
-	if (r)
-		hx_warn("hx: sym init failed %d\n", r);
+	pr_info("hx: sym_init -> %d
+", r);
 
 	r = hx_touch_init();
-	if (r)
-		hx_warn("hx: touch dev not found %d\n", r);
+	pr_info("hx: touch_init -> %d
+", r);
 
 	r = hx_drm_init();
 	g_drm_ok = (r == 0);
-	if (r)
-		hx_warn("hx: drm hook deferred (msm_drm may not be loaded yet)\n");
+	pr_info("hx: drm_init -> %d
+", r);
 
 	INIT_DELAYED_WORK(&g_tick_work, hx_tick_fn);
 
-	(void)hx_gate_init();   /* 失败也继续：纯内嵌配置模式 */
+	r = hx_gate_init();
+	pr_info("hx: gate_init -> %d
+", r);
+
+#if HX_DIAG_NO_TICK
+	pr_info("hx: tick worker DISABLED (diag mode)
+");
+#else
 	hx_feature_resume();
+	pr_info("hx: tick worker enabled
+");
+#endif
 
-	/* 最后一步：摘链。之后 /proc/modules、/sys/module、/proc/kallsyms 里都没有 hx */
-	hx_hide_self();
-
+	pr_info("hx: init done
+");
 	return 0;
 }
 
