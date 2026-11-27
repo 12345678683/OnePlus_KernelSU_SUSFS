@@ -158,17 +158,20 @@ static struct task_struct *hx_task(int pid)
  * 模块锚点：找 so 的 VMA 集合，返回最小基址与"最后一个 rw 段的结束地址"
  * HoK 的锚点是 libGameCore.so 最后一个 rw- 段的 end + 0x182810
  * ---------------------------------------------------------------- */
+/*
+ * 取 VMA 对应的文件名。
+ *
+ * 不能用 d_path()：它要拿 rename_lock/mount_lock，而本函数是在持有
+ * mmap_read_lock 的情况下被调用的，两者嵌套会有锁序问题 —— 表现为开机后
+ * 采样线程跑到这里就卡死，看起来和 bootloop 一样。
+ * 直接读 dentry 的 d_name 就够了：vma 持有 file 引用，dentry 必然有效。
+ */
 static const char *hx_basename(struct file *f, char *buf, int cap)
 {
-	char *p, *s;
-
-	if (!f)
+	if (!f || !f->f_path.dentry)
 		return NULL;
-	s = d_path(&f->f_path, buf, cap);
-	if (IS_ERR(s))
-		return NULL;
-	p = strrchr(s, '/');
-	return p ? p + 1 : s;
+	(void)buf; (void)cap;
+	return (const char *)f->f_path.dentry->d_name.name;
 }
 
 static int hx_module_range_impl(int pid, const char *so, u64 *base, u64 *end,
