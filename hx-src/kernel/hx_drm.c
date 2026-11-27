@@ -336,7 +336,6 @@ static int hx_commit_pre(struct kprobe *kp, struct pt_regs *regs)
 	struct drm_device *dev = (void *)regs->regs[0];
 	struct drm_atomic_state *state = (void *)regs->regs[1];
 	struct drm_framebuffer *fb = NULL;
-	int i;
 
 	if (!g_ddev && dev)
 		g_ddev = dev;
@@ -344,19 +343,26 @@ static int hx_commit_pre(struct kprobe *kp, struct pt_regs *regs)
 		return 0;
 
 	/*
-	 * 注意：struct drm_crtc_state 里没有 fb —— framebuffer 挂在 plane state 上。
-	 * 取 primary plane 的 fb 就是要送显的那一块。
+	 * 这个内核的 struct drm_atomic_state 里连 num_plane / num_crtcs 都没有
+	 * （oplus 的 DRM 分支动过结构），所以不能靠 state 的数组长度。
+	 *
+	 * 改成从「device 的 crtc 链表 → crtc->primary → plane->state->fb」取。
+	 * 在 drm_atomic_commit 入口，plane->state 指向的是当前已生效的那一帧，
+	 * 对 ESP 叠画来说够用（双缓冲下画哪一帧都会送到屏幕）。
+	 * 全程只读指针，不睡眠，kprobe 上下文安全。
 	 */
-	for (i = 0; i < state->num_plane; i++) {
-		struct drm_plane_state *ps = state->planes[i].state;
+	{
+		struct drm_crtc *crtc;
 
-		if (!state->planes[i].ptr)
-			continue;
-		if (state->planes[i].ptr->type != DRM_PLANE_TYPE_PRIMARY)
-			continue;
-		if (ps && ps->fb) {
-			fb = ps->fb;
-			break;
+		drm_for_each_crtc(crtc, dev) {
+			struct drm_plane *pp = crtc->primary;
+
+			if (!pp || !pp->state)
+				continue;
+			if (pp->state->fb) {
+				fb = pp->state->fb;
+				break;
+			}
 		}
 	}
 	if (!fb)
