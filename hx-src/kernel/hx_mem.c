@@ -34,7 +34,6 @@
  * 用 kprobe 的地址解析能力把它取出来（标准做法，无字节改动）。
  * ---------------------------------------------------------------- */
 static void *(*p_kallsyms_lookup_name)(const char *name);
-static int  (*p_get_cmdline)(struct task_struct *t, char *buf, int len);
 static int  (*p_access_process_vm)(struct task_struct *tsk, unsigned long addr,
 				   void *buf, int len, unsigned int gup_flags);
 static long (*p_get_user_pages_remote)(struct mm_struct *mm, unsigned long start,
@@ -53,8 +52,6 @@ int hx_sym_init(void)
 
 	if (!p_kallsyms_lookup_name)
 		return -ENOENT;
-
-	p_get_cmdline        = hx_sym("get_cmdline");
 	p_access_process_vm  = hx_sym("access_process_vm");
 	p_get_user_pages_remote = hx_sym("get_user_pages_remote");
 	return 0;
@@ -70,72 +67,32 @@ void *hx_sym(const char *name)
 /* ---------------------------------------------------------------- *
  * 进程定位
  * ---------------------------------------------------------------- */
-static bool hx_task_match(struct task_struct *t, const char *name)
-{
-	char *buf;
-	int n;
-	bool hit = false;
-
-	if (strncmp(t->comm, name, TASK_COMM_LEN) == 0) {
-		size_t l = strlen(t->comm);
-		/* comm 被截断到 15 字节时不能算命中，继续比 cmdline */
-		if (l == strlen(name) || strlen(name) <= TASK_COMM_LEN - 1)
-			return true;
-	}
-
-	if (!p_get_cmdline)
-		return false;
-
-	buf = kzalloc(256, GFP_KERNEL);
-	if (!buf)
-		return false;
-	n = p_get_cmdline(t, buf, 256);
-	if (n > 0) {
-		/* cmdline 是 \0 分隔的 argv，逐段比 basename 与全串 */
-		char *p = buf, *end = buf + n;
-
-		while (p < end) {
-			if (strcmp(p, name) == 0) {
-				hit = true;
-				break;
-			}
-			p += strlen(p) + 1;
-		}
-	}
-	kfree(buf);
-	return hit;
-}
-
 int hx_pid_by_name(const char *name)
 {
 	struct task_struct *t;
 	int pid = -1;
+	size_t n = strlen(name);
 
+	/* comm 只存 15 个字符，后面的会被截断 */
+	if (n > TASK_COMM_LEN - 1)
+		n = TASK_COMM_LEN - 1;
+
+	/*
+	 * 这里绝不能调 get_cmdline()：它内部 mmput()/down_read()，会睡眠，
+	 * 而本循环跑在 rcu_read_lock() 里 —— 睡眠立刻触发
+	 * "sleeping in RCU read side critical section" 然后 panic。
+	 * 实测 com.tencent.tmgp.sgame 的 comm 是 com.tencent.tmg，
+	 * 前缀匹配足够唯一定位。
+	 */
 	rcu_read_lock();
 	for_each_process(t) {
-		if (strstr(name, "tmgp") || strlen(name) > TASK_COMM_LEN) {
-			if (hx_task_match(t, name)) {
-				pid = t->pid;
-				break;
-			}
-		} else if (strncmp(t->comm, name, TASK_COMM_LEN) == 0) {
+		if (strncmp(t->comm, name, n) == 0) {
 			pid = t->pid;
 			break;
 		}
 	}
 	rcu_read_unlock();
 
-	if (pid < 0) {
-		/* 兜底：全量 cmdline 匹配（慢路径，只在上面漏掉时走） */
-		rcu_read_lock();
-		for_each_process(t) {
-			if (hx_task_match(t, name)) {
-				pid = t->pid;
-				break;
-			}
-		}
-		rcu_read_unlock();
-	}
 	g_stat.last_pid = pid;
 	return pid;
 }
