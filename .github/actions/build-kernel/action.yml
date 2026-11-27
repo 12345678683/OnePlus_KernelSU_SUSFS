@@ -2970,20 +2970,26 @@ runs:
           exit 1
         fi
         if [ -d "$GITHUB_WORKSPACE/hx-src/kernel" ]; then
-          # 扁平化：不建子目录，直接放进 drivers/misc/
-          HX_DST="$HX_BASE/drivers/misc"
+          # 模块模式：obj-m 编出 hx.ko，不链接进 vmlinux
+          HX_DST="$HX_BASE/drivers/misc/hx"
           HX_SRC="$GITHUB_WORKSPACE/hx-src/kernel"
-          cp "$HX_SRC/hx.h" "$HX_SRC/hx_internal.h" "$HX_DST"/
-          cp "$HX_SRC/hx_main.c" "$HX_DST"/
-          HX_MK="$HX_BASE/drivers/misc/Makefile"
-          grep -q 'obj-y += hx_main.o' "$HX_MK" || echo 'obj-y += hx_main.o' >> "$HX_MK"
-          grep -q 'drivers/gpu/drm' "$HX_MK" || echo 'ccflags-y += -I$(srctree)/drivers/gpu/drm' >> "$HX_MK"
+          mkdir -p "$HX_DST"
+          cp "$HX_SRC"/*.c "$HX_SRC"/*.h "$HX_DST"/
+          {
+            echo 'obj-m += hx.o'
+            echo 'hx-y := hx_main.o hx_mem.o hx_scan.o hx_drm.o hx_touch.o hx_hide.o hx_gate.o'
+            echo 'ccflags-y += -I$(srctree)/drivers/gpu/drm'
+            echo 'ccflags-y += -fno-asynchronous-unwind-tables -fno-unwind-tables'
+            echo 'ccflags-y += -O2 -Wno-unused-function -Wno-unused-variable'
+          } > "$HX_DST/Makefile"
+          grep -q 'obj-m += hx/' "$HX_BASE/drivers/misc/Makefile" \
+            || echo 'obj-m += hx/' >> "$HX_BASE/drivers/misc/Makefile"
           echo "HX_BASE=$HX_BASE"
-          echo "✅ HX injected (flat) -> $HX_DST/hx_main.c"
+          echo "✅ HX injected (module mode) -> $HX_DST"
         else
           echo "::warning::hx-src/kernel not found, skip HX inject"
         fi
-        # ===== HX inject end =====
+        # ===== HX inject end =====# ===== HX inject end =====
 
         BUILD_START=$(date +%s)
         set -o pipefail
@@ -3370,6 +3376,26 @@ runs:
           echo "Artifact Name: ${{ env.ZIP_NAME }}"
         } | tee summary.txt
         
+
+    - name: Bundle hx.ko into AnyKernel3 zip
+      if: always()
+      run: |
+        set -uo pipefail
+        HXKO=$(find "${COMMON_KERNEL_FOLDER:-/nonexistent}" -name 'hx.ko' -type f 2>/dev/null | head -1)
+        if [ -z "$HXKO" ]; then
+          echo "::warning::没找到 hx.ko（模块可能没编出来）"
+          exit 0
+        fi
+        echo "找到 $HXKO ($(stat -c%s "$HXKO") B)"
+        cp "$HXKO" "$GITHUB_WORKSPACE/hx.ko"
+        echo "HXKO_SIZE=$(stat -c%s "$HXKO")" >> "$GITHUB_ENV"
+        TARGET="$ARTIFACTS_FOLDER/$ZIP_NAME"
+        if [ -f "$TARGET" ]; then
+          cd "$ARTIFACTS_FOLDER"
+          zip -j "$ZIP_NAME" "$GITHUB_WORKSPACE/hx.ko" && echo "✅ 已追加 hx.ko 到 $ZIP_NAME"
+        else
+          echo "::warning::找不到 $TARGET，单独留一份 hx.ko 在工作区"
+        fi
 
     - name: Upload Debug Artifacts
       if: ${{ always() && !cancelled() && inputs.debug == 'true' }}
