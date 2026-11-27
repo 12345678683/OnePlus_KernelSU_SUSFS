@@ -357,14 +357,19 @@ static int hx_commit_pre(struct kprobe *kp, struct pt_regs *regs)
 	if (!g_fbc.valid || !g_fbc.vaddr)
 		return 0;
 
-	/* 纯内存绘制 —— 这一帧的 GPU 写入已完成，我们在送显前加入像素 */
-	if (g_cfg.flags & HX_FLAG_DRM_ALPHA)
-		dma_buf_begin_cpu_access(fb->obj[0]->dma_buf, DMA_BIDIRECTIONAL);
+	/*
+	 * 绝不能在这里调 dma_buf_begin_cpu_access()/end_cpu_access()：
+	 * 它们会睡眠，而 kprobe pre_handler 处于原子上下文 —— 一调用就是
+	 * "scheduling while atomic" + panic，这正是上一次 bootloop 的元凶。
+	 * 这里只做纯内存写，cache 一致性交给平台的 IO-coherent；
+	 * 最坏情况是某帧没画上，不会崩。
+	 */
+	if (!(g_cfg.flags & HX_FLAG_DRM_DRAW))
+		return 0;
+
 	spin_lock(&g_lock);
 	hx_draw_locked();
 	spin_unlock(&g_lock);
-	if (g_cfg.flags & HX_FLAG_DRM_ALPHA)
-		dma_buf_end_cpu_access(fb->obj[0]->dma_buf, DMA_BIDIRECTIONAL);
 
 	return 0;
 }
