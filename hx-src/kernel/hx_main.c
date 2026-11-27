@@ -75,8 +75,8 @@ void hx_cfg_default(struct hx_cfg *c)
 	c->radar_cx    = 250;
 	c->radar_cy    = 250;
 	c->radar_r     = 160;
-	c->world_span  = 200.f;
-	c->radar_rot_deg = 0;
+	c->world_span  = 200;      /* 米 */
+	c->radar_rot_deg = 0;    /* 度，当前未使用 */
 
 	c->aim_on      = 0;
 	c->aim_key     = HX_AIM_TOUCH;
@@ -107,8 +107,8 @@ void hx_cfg_apply(const struct hx_cfg *src)
 		c.ent_max = HX_MAX_ENT;
 	if (c.max_read < 64 || c.max_read > 0x100000)
 		c.max_read = 0x10000;
-	if (c.world_span < 10.f || c.world_span > 2000.f)
-		c.world_span = 200.f;
+	if (c.world_span < 10 || c.world_span > 2000)
+		c.world_span = 200;
 	if (c.radar_r < 8)
 		c.radar_r = 160;
 	if (c.hud_w < 320)
@@ -129,10 +129,10 @@ void hx_cfg_apply(const struct hx_cfg *src)
 static int hx_pick_target(const struct hx_ent *e, int n)
 {
 	int i, best = -1;
-	float best_score = 1e9f;
+	s64 best_score = (s64)1 << 62;
 
 	for (i = 1; i < n; i++) {
-		float dx, dz, d2, score;
+		s64 dx, dz, d2, score;
 
 		if ((g_cfg.flags & HX_FLAG_CAMP_FILTER) && e[i].team >= 0 &&
 		    e[0].team >= 0 && e[i].team == e[0].team)
@@ -140,10 +140,12 @@ static int hx_pick_target(const struct hx_ent *e, int n)
 
 		dx = e[i].x - e[0].x;
 		dz = e[i].z - e[0].z;
-		d2 = dx * dx + dz * dz;
+		/* 距离平方（Q16.16 米 -> s64，防溢出），再降一档避免越界 */
+		d2 = ((dx * dx + dz * dz) >> FX_SHIFT) >> 8;
 		score = d2;
+		/* 血量越低越优先：score * (4000+hp)/8000 */
 		if (e[i].hp > 0)
-			score *= (0.5f + (float)e[i].hp / 8000.f);
+			score = score * (4000 + e[i].hp) / 8000;
 		if (score < best_score) {
 			best_score = score;
 			best = i;
@@ -156,7 +158,8 @@ static void hx_aim_tick(const struct hx_ent *e, int n)
 {
 	int t = hx_pick_target(e, n);
 	int jx, jy, ms;
-	float dx, dz, dist;
+	s32 dx, dz, dist_m;
+	u32 d2;
 
 	if (t < 0)
 		return;
@@ -166,10 +169,18 @@ static void hx_aim_tick(const struct hx_ent *e, int n)
 
 	dx = e[t].x - e[0].x;
 	dz = e[t].z - e[0].z;
-	dist = int_sqrt((u32)(dx * dx + dz * dz));
+	/* 开方：Q16.16 米^2 -> 米。先 >>16 再 >>8 降到 u32，最后 >>4 还原单位 */
+	{
+		s64 d2fx = ((s64)dx * dx + (s64)dz * dz) >> FX_SHIFT;
 
-	/* 目标超出 fov（用世界距离近似）就放弃 */
-	if (dist * 100.f > (float)g_cfg.aim_fov * 20.f)
+		d2 = (u32)(d2fx >> 8);
+		dist_m = (s32)(int_sqrt(d2) >> 4);
+	}
+	if (dist_m < 1)
+		dist_m = 1;
+
+	/* 目标超出 fov（米）就放弃 */
+	if (dist_m > g_cfg.aim_fov)
 		return;
 
 	jx = (int)get_random_u32_below(g_cfg.aim_slot_px * 2 + 1) -
@@ -182,10 +193,11 @@ static void hx_aim_tick(const struct hx_ent *e, int n)
 		int cx = g_cfg.hud_w * 480 / 1280;
 		int cy = g_cfg.hud_h * 885 / 2760;
 		int range = g_cfg.hud_w / 6;
-		int tx = cx + (int)(dx * range / (dist + 1.f));
-		int ty = cy + (int)(dz * range / (dist + 1.f));
+		s64 den = (s64)dist_m * FX_ONE;
+		int tx = cx + (int)((s64)dx * range / den);
+		int ty = cy + (int)((s64)dz * range / den);
 
-		ms = 60 + (int)(dist / 8.f);
+		ms = 60 + dist_m * 4;
 		if (ms > 320)
 			ms = 320;
 		if (ms < 60)
