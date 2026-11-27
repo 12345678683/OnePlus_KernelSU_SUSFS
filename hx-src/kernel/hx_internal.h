@@ -32,11 +32,12 @@ int  hx_read(int pid, u64 addr, void *buf, u32 len);
 int  hx_write(int pid, u64 addr, const void *buf, u32 len);
 int  hx_read_u64(int pid, u64 addr, u64 *out);
 int  hx_read_u32(int pid, u64 addr, u32 *out);
-int  hx_read_f32(int pid, u64 addr, float *out);
+int  hx_read_fx(int pid, u64 addr, fx_t *out);
+fx_t hx_f32_to_fx(u32 bits);
 
 /* 采集 */
 int  hx_scan_once(struct hx_ent *out, int cap);
-int  hx_self_pos(float *x, float *z);
+int  hx_self_pos(fx_t *x, fx_t *z);
 
 /* 绘制 */
 int  hx_drm_init(void);
