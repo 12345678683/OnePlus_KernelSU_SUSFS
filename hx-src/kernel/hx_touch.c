@@ -183,10 +183,12 @@ int hx_touch_swipe(int x1, int y1, int x2, int y2, int ms)
 	hx_touch_down(x1, y1);
 	t0 = ktime_get();
 	for (i = 1; i <= steps; i++) {
-		float t = (float)i / (float)steps;
-		float ease = 1.f - (1.f - t) * (1.f - t);
-		int cx = x1 + (int)((x2 - x1) * ease);
-		int cy = y1 + (int)((y2 - y1) * ease);
+		/* ease-out，纯定点：t = i/steps，ease = 1-(1-t)^2 */
+		s32 t = (s32)(((s64)i << FX_SHIFT) / steps);
+		s32 inv = FX_ONE - t;
+		s32 ease = FX_ONE - FX_MUL(inv, inv);
+		int cx = x1 + (int)(((s64)(x2 - x1) * ease) >> FX_SHIFT);
+		int cy = y1 + (int)(((s64)(y2 - y1) * ease) >> FX_SHIFT);
 		u64 target = (u64)(ms * 1000) * i / steps;
 		s64 now;
 
