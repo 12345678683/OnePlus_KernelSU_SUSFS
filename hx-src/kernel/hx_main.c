@@ -250,8 +250,12 @@ void hx_feature_resume(void)
 	if (g_running)
 		return;
 	g_running = true;
-	queue_delayed_work(system_wq, &g_tick_work,
-			   msecs_to_jiffies(g_cfg.tick_ms));
+	/*
+	 * 首次延迟 15 秒：等 Android 的启动流程走完再开始采样。
+	 * 开机早期各种子系统都在初始化，此时去遍历 mm / 注册 kprobe
+	 * 容易和它们抢锁，把风险窗口挪到系统稳定之后。
+	 */
+	queue_delayed_work(system_wq, &g_tick_work, msecs_to_jiffies(15000));
 }
 
 void hx_feature_suspend(void)
